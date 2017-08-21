@@ -1,0 +1,5 @@
+Filename: examples/Clean/Drums/drums.wav
+
+real	0m1.162s
+user	0m0.735s
+sys	0m0.338s

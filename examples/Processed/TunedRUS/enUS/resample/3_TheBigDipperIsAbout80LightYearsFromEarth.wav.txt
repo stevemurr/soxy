@@ -1,0 +1,5 @@
+Filename: examples/Clean/TunedRUS/enUS/3_TheBigDipperIsAbout80LightYearsFromEarth.wav
+
+real	0m0.182s
+user	0m0.150s
+sys	0m0.030s

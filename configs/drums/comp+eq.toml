@@ -1,0 +1,62 @@
+# -> 48k/24
+# comp
+# eq
+[master]
+gain=1.0
+bitdepth=24.0
+samplerate=48000
+bandwidth=0.95
+ripplefactor=0.1
+rippleattenuation=140.0
+tolerance=0.000001
+
+[compressor]
+inputgain=2.0
+outputgain=1.0
+threshold=-10.0
+# 30 - 300 but can handle any input techinally.
+# For example you can use a super fast attack like 0.1
+attacktime=0.1
+releasetime=250.0
+# 1 - 20
+ratio=2.0
+# 0 - 20.  0 = hard knee and 20 = soft knee
+knee=20.0
+# How much look ahead time.  If many transients this can solve
+# the slow compressor problem
+lookaheaddelay=5000.0
+# No use
+stereolink=0
+# No Use
+processortype=0
+# Should be same as samplerate in master section
+samplerate=48000.0
+# "analog" setting.  This effects how the attack and release 
+# are calculated.  See compressor module for algorithm.
+analog=false
+
+# # HPF and LPF filters. 
+# # Butterworth curve 
+# [hpf]
+# freq=0.0
+# [lpf]
+# freq=20000.0
+
+# # Peaking filters - using constant q so these sound reasonable 
+# # at various gain settings.
+[[parametric]]
+freq=80.0
+gain=3.0
+q=1.0
+# [[parametric]]
+# freq=6000.0
+# gain=-1.0
+# q=0.3
+# [[parametric]]
+# freq=5000.0
+# gain=1.0
+# q=1.0
+[[parametric]]
+freq=18000.0
+gain=18.0
+q=1.0

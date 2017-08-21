@@ -1,0 +1,11 @@
+# Gain scaling - < 1.0 will decrease volume while > 1.0 will increase volume.
+# Target bit depth
+# Target samplerate
+[master]
+gain=1.0
+bitdepth=16.0
+samplerate=16000
+bandwidth=0.97
+ripplefactor=0.1
+rippleattenuation=150.0
+tolerance=0.000001

@@ -1,0 +1,5 @@
+Filename: examples/Clean/TunedRUS/enAU/9320000093.wav
+
+real	0m0.343s
+user	0m0.263s
+sys	0m0.073s

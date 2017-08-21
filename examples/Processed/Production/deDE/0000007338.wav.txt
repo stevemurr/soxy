@@ -1,0 +1,5 @@
+Filename: examples/Clean/Production/deDE/0000007338.wav
+
+real	0m0.645s
+user	0m0.435s
+sys	0m0.111s
