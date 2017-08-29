@@ -1,0 +1,96 @@
+[master]
+# Scale input before processing.
+gain=0.4
+# Target bit depth
+bitdepth=24.0
+# Target sample rate
+samplerate=48000
+# 0.95 - 0.99 - may fail above .97
+bandwidth=0.97
+# 0.01 - 0.1 - may fail the lower you go
+ripplefactor=0.1
+# 100 - 159
+rippleattenuation=150.0
+# Don't edit
+tolerance=0.000001
+
+# [compressor]
+# inputgain=2.0
+# outputgain=1.0
+# threshold=-15.0
+# # 30 - 300 but can handle any input techinally.
+# # For example you can use a super fast attack like 0.1
+# attacktime=30.0
+# releasetime=30.0
+# # 1 - 20
+# ratio=4.0
+# # 0 - 20.  0 = hard knee and 20 = soft knee
+# knee=10.0
+# # How much look ahead time.  If many transients this can solve
+# # the slow compressor problem
+# lookaheaddelay=5000.0
+# # No use
+# stereolink=0
+# # No Use
+# processortype=0
+# # Should be same as samplerate in master section
+# samplerate=48000.0
+# # "analog" setting.  This effects how the attack and release 
+# # are calculated.  See compressor module for algorithm.
+# analog=false
+
+# [hpf]
+# freq=60.0
+
+[[parametric]]
+freq=10.0
+gain=24.0
+q=1.0
+[[parametric]]
+freq=20.0
+gain=24.0
+q=1.0
+[[parametric]]
+freq=30.0
+gain=24.0
+q=0.5
+[[parametric]]
+freq=50.0
+gain=-24.0
+q=0.5
+[[parametric]]
+freq=2000.0
+gain=6.0
+q=1.0
+[[parametric]]
+freq=600.0
+gain=10.0
+q=1.0
+[[parametric]]
+freq=4000.0
+gain=3.0
+q=1.0
+[[parametric]]
+freq=8000.0
+gain=6.0
+q=1.0
+[[parametric]]
+freq=16000.0
+gain=3.0
+q=1.0
+[[parametric]]
+freq=20000.0
+gain=3.0
+q=1.0
+# [[parametric]]
+# freq=600.0
+# gain=3.0
+# q=1.0
+# [[parametric]]
+# freq=2500.0
+# gain=6.0
+# q=1.0
+# [[parametric]]
+# freq=8000.0
+# gain=3.0
+# q=1.0
