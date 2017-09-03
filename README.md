@@ -4,7 +4,7 @@ This is an advanced version of SOX written in Go with all the algorithms impleme
 
 # Installation
 
-For development you will need Go
+For development you will need Go, SOX and (audiowaveform)[https://github.com/bbc/audiowaveform]
 
 # Usage
 

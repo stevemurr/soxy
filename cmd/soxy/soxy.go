@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -9,28 +10,34 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"soxy/biquad/hpf"
 	"soxy/biquad/lpf"
 	"soxy/biquad/parametric"
 	"soxy/compressor"
 	"soxy/resample/smarc"
+	"soxy/tempr"
+	"strconv"
 
 	"github.com/go-audio/audio"
 	"github.com/go-audio/transforms"
 	"github.com/go-audio/wav"
 	"github.com/naoina/toml"
+	"gopkg.in/cheggaaa/pb.v1"
 )
+
+var bitDepthConvert = map[float64]string{
+	24.0: "pcm_s24le",
+	16.0: "pcm_s16le",
+}
 
 var (
 	info     = flag.String("i", "", "get info about the file")
-	inFile   = flag.String("in", "", "input file")
 	inPath   = flag.String("inPath", "", "input path with many waves")
 	outPath  = flag.String("outPath", "", "output folder")
-	outFile  = flag.String("out", "", "target output file")
 	inConfig = flag.String("c", "", "path to config")
-	// norm     = flag.Bool("normalize", false, "normalize the file")
-	spectro = flag.Bool("spectro", false, "also create spectrograms")
-	workers = flag.Int("workers", 4, "number of go routines to use")
+	spectro  = flag.Bool("spectro", false, "also create spectrograms")
+	workers  = flag.Int("workers", runtime.NumCPU(), "Number of go routines to use.")
 )
 
 type config struct {
@@ -43,7 +50,14 @@ type config struct {
 		RippleAttenuation float64
 		Tolerance         float64
 		Normalize         bool
-		NormalizeTo       string
+
+		IntegratedLoudness string
+		LoudnessRange      string
+		TruePeak           string
+		PeakNorm           string
+
+		SoxNorm   bool
+		SoxNormTo string
 	}
 	Compressor *compressor.Compressor
 	Parametric []*parametric.Parametric
@@ -115,7 +129,6 @@ func process(c config, inFile, outFile string) error {
 	}
 	w := wav.NewDecoder(f)
 	w.ReadInfo()
-
 	buf, err := w.FullPCMBuffer()
 	if err != nil {
 		log.Fatal(err)
@@ -126,65 +139,116 @@ func process(c config, inFile, outFile string) error {
 		log.Fatal(err)
 	}
 	defer out.Close()
-	// convert to useful floats
+	// convert to float buffer with range -1 to 1
 	buff := toFloatBuffer(buf, float64(w.BitDepth))
-	// change bit depth
-
 	transforms.Gain(buff, c.Master.Gain)
 
-	if float64(w.BitDepth) != c.Master.BitDepth {
-		transforms.Quantize(buff, 32.0)
-	}
-	if int(w.SampleRate) != c.Master.SampleRate {
-		buff.Data = smarc.Resample(buff.Data, int(w.SampleRate), c.Master.SampleRate, c.Master.Bandwidth, c.Master.RippleFactor, c.Master.RippleAttenuation, c.Master.Tolerance)
-	}
-	// eq and compression
+	// Resample to 192000 for internal processing.
+	buff.Data = smarc.Resample(buff.Data, int(w.SampleRate), 192000, c.Master.Bandwidth, c.Master.RippleFactor, c.Master.RippleAttenuation, c.Master.Tolerance)
+
 	if c.HPF != nil {
-		hpf.HighPass(buff, c.HPF.Freq, float64(w.SampleRate), int(w.NumChans))
+		hpf.HighPass(buff, c.HPF.Freq, 192000.0, int(w.NumChans))
 	}
 	if c.LPF != nil {
-		lpf.LowPass(buff, c.LPF.Freq, float64(w.SampleRate), int(w.NumChans))
+		lpf.LowPass(buff, c.LPF.Freq, 192000.0, int(w.NumChans))
 	}
 	if len(c.Parametric) != 0 {
 		for _, eq := range c.Parametric {
-			parametric.EQ(buff, eq.Freq, eq.Gain, eq.Q, float64(c.Master.SampleRate), int(w.NumChans))
+			parametric.EQ(buff, eq.Freq, eq.Gain, eq.Q, 192000.0, int(w.NumChans))
 		}
 	}
 	if c.Compressor != nil {
-		compressor.Compress(buff, c.Compressor.Ratio, c.Compressor.AttackTime, c.Compressor.ReleaseTime, c.Compressor.Threshold, c.Compressor.InputGain, c.Compressor.OutputGain, float64(w.SampleRate), c.Compressor.LookAheadDelay, c.Compressor.Knee)
+		compressor.Compress(buff, c.Compressor.Ratio, c.Compressor.AttackTime, c.Compressor.ReleaseTime, c.Compressor.Threshold, c.Compressor.InputGain, c.Compressor.OutputGain, 192000, c.Compressor.LookAheadDelay, c.Compressor.Knee)
 	}
 
 	if *spectro {
+		// dump metrics and stats in output folder
 		defer func() {
-			cmd := exec.Command("sox", out.Name(), "-n", "spectrogram", "-o", "spectro_"+out.Name())
+			// draw spectrogram
+			specFol := filepath.Join(*outPath, "Spectrograms")
+			os.MkdirAll(specFol, 0755)
+			_, tail := filepath.Split(out.Name())
+			pngFile := filepath.Join(specFol, tail[:len(tail)-4]+".png")
+			cmd := exec.Command("sox", out.Name(), "-n", "spectrogram", "-o", pngFile)
 			cmd.Run()
+
+			// draw the waveform
+			dur, err := w.Duration()
+			if err != nil {
+				log.Fatal(err)
+			}
+			waveFol := filepath.Join(*outPath, "Waveforms")
+			os.MkdirAll(waveFol, 0755)
+			wfFile := filepath.Join(waveFol, tail[:len(tail)-4]+".png")
+			dura := dur.String()
+			cmd = exec.Command("audiowaveform", "-i", out.Name(), "-o", wfFile, "-b", "16", "-e", dura[:len(dura)-1])
+			cmd.Run()
+
+			// save the config
+			ff, err := ioutil.ReadFile(*inConfig)
+			if err != nil {
+				log.Fatal(err)
+			}
+			configFol := filepath.Join(*outPath, "Config")
+			os.MkdirAll(configFol, 0755)
+			_, ctail := filepath.Split(*inConfig)
+			if err := ioutil.WriteFile(filepath.Join(configFol, ctail), ff, 0644); err != nil {
+				log.Fatal(err)
+			}
+			statsFol := filepath.Join(*outPath, "Stats")
+			os.MkdirAll(statsFol, 0755)
+
+			var cmdBuf bytes.Buffer
+			cmd = exec.Command("sox", out.Name(), "-n", "stats")
+			cmd.Stdout = &cmdBuf
+			cmd.Stderr = &cmdBuf
+			cmd.Run()
+			if err := ioutil.WriteFile(filepath.Join(statsFol, tail[:len(tail)-4]+".txt"), cmdBuf.Bytes(), 0644); err != nil {
+				panic(err)
+			}
 		}()
 	}
 
-	if c.Master.Normalize {
-		// reuse the tmpfile
-		wr := wav.NewEncoder(tmpFile, c.Master.SampleRate, int(c.Master.BitDepth), int(w.NumChans), int(w.WavAudioFormat))
-		if err := wr.Write(toIntBuffer(buff, float64(c.Master.BitDepth))); err != nil {
-			log.Fatal(err)
-		}
-		if err = wr.Close(); err != nil {
-			log.Fatal(err)
-		}
-		// use sox to normalize
-		cmd := exec.Command("sox", tmpFile.Name(), out.Name(), "--norm="+c.Master.NormalizeTo)
-		if err := cmd.Run(); err != nil {
-			log.Fatal(err)
-		}
-		return nil
-	}
-	// write the file out
-	wr := wav.NewEncoder(out, c.Master.SampleRate, int(c.Master.BitDepth), int(w.NumChans), int(w.WavAudioFormat))
-	if err := wr.Write(toIntBuffer(buff, float64(c.Master.BitDepth))); err != nil {
-		log.Fatal(err)
+	// write the file down as 192
+	wr := wav.NewEncoder(tmpFile, 192000.0, int(w.BitDepth), int(w.NumChans), int(w.WavAudioFormat))
+	if err := wr.Write(toIntBuffer(buff, float64(w.BitDepth))); err != nil {
+		panic(err)
 	}
 	if err = wr.Close(); err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
+	newRate := strconv.Itoa(c.Master.SampleRate)
+	if c.Master.Normalize {
+		// Loudness normalization first
+		normTemp, err := tempr.TempFile("", "soxy", ".wav")
+		if err != nil {
+			panic(err)
+		}
+		loudNormSettings := fmt.Sprintf("loudnorm=I=%s:LRA=%s:TP=%s", c.Master.IntegratedLoudness, c.Master.LoudnessRange, c.Master.TruePeak)
+		command := []string{
+			"-y",
+			"-i",
+			tmpFile.Name(),
+			"-af",
+			loudNormSettings,
+			"-acodec",
+			bitDepthConvert[c.Master.BitDepth],
+			"-ar",
+			newRate,
+			normTemp.Name(),
+		}
+		cmd := exec.Command("ffmpeg", command...)
+		if err := cmd.Run(); err != nil {
+			panic(err)
+		}
+		// Peak normalization
+		cmd = exec.Command("sox", normTemp.Name(), out.Name(), "--norm="+c.Master.PeakNorm)
+		cmd.Run()
+		return nil
+	}
+	// just do a conversion
+	cmd = exec.Command("ffmpeg", "-y", "-i", tmpFile.Name(), "-acodec", bitDepthConvert[c.Master.BitDepth], "-ar", newRate, out.Name())
+	cmd.Run()
 	return nil
 }
 
@@ -203,7 +267,6 @@ func worker(jobs <-chan job, results chan<- string) {
 		results <- fmt.Sprintf("%s done ...\n", j.InFile)
 	}
 }
-
 func main() {
 	flag.Parse()
 
@@ -218,6 +281,7 @@ func main() {
 		printInfo(name, w)
 		os.Exit(0)
 	}
+
 	var c config
 	if err := readConfig(*inConfig, &c); err != nil {
 		panic(err)
@@ -226,6 +290,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// make output path - delete if exists
+	// if err := os.MkdirAll(*outPath, 0755); err != nil {
+	// 	os.RemoveAll(*outPath)
+	// 	os.MkdirAll(*outPath, 0755)
+	// }
+	os.RemoveAll(*outPath)
 	os.MkdirAll(*outPath, 0755)
 	jobs := make(chan job, len(files))
 	results := make(chan string, len(files))
@@ -241,7 +311,10 @@ func main() {
 	}
 	close(jobs)
 
+	bar := pb.StartNew(len(files))
 	for range files {
-		fmt.Printf("%s", <-results)
+		bar.Increment()
+		<-results
 	}
+	bar.Finish()
 }
